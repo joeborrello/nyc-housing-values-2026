@@ -120,6 +120,11 @@
   <div id="map"></div>
   <div id="loading"><div class="spinner"></div><p>Loading ZIP code boundaries&hellip;</p></div>
   <div id="legend">
+    <div id="leg-income" style="display:none; margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #1e293b;">
+      <h4>Median HH Income <span style="font-weight:400;color:#475569">(2023 ACS)</span></h4>
+      <div class="legend-gradient" style="background:linear-gradient(to right,rgb(255,255,212),rgb(161,218,180),rgb(65,182,196),rgb(44,127,184),rgb(12,44,132))"></div>
+      <div class="legend-ticks"><span id="leg-inc-lo"></span><span id="leg-inc-mid"></span><span id="leg-inc-hi"></span></div>
+    </div>
     <h4 id="leg-title">Feb 2026 Home Value</h4>
     <div class="legend-gradient" id="leg-bar"></div>
     <div class="legend-ticks"><span id="leg-lo"></span><span id="leg-mid"></span><span id="leg-hi"></span></div>
@@ -631,11 +636,13 @@ function addIncomeLayer(cache) {
 
 async function toggleIncome() {
   const btn = document.getElementById('btn-income');
+  const legIncome = document.getElementById('leg-income');
   if (incomeVisible) {
     if (incomeLayer) { leafMap.removeLayer(incomeLayer); incomeLayer = null; }
     incomeVisible = false;
     btn.classList.remove('income-active');
-    if (geoLayer) geoLayer.setStyle(featureStyle);  // restore ZIP opacity
+    legIncome.style.display = 'none';
+    if (geoLayer) geoLayer.setStyle(featureStyle);
     return;
   }
   btn.classList.add('income-loading');
@@ -645,6 +652,10 @@ async function toggleIncome() {
     incomeVisible = true;
     addIncomeLayer(data);
     btn.classList.add('income-active');
+    document.getElementById('leg-inc-lo').textContent  = fmtIncome(data.minIncome);
+    document.getElementById('leg-inc-mid').textContent = fmtIncome(Math.round(Math.exp((Math.log(data.minIncome) + Math.log(data.maxIncome)) / 2)));
+    document.getElementById('leg-inc-hi').textContent  = fmtIncome(data.maxIncome);
+    legIncome.style.display = 'block';
   } catch(err) {
     incomeVisible = false;
     alert('Could not load income data: ' + err.message);
