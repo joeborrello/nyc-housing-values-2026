@@ -76,6 +76,10 @@
       box-shadow: 0 2px 8px #0005;
     }
     .leaflet-tooltip.dtt::before { display: none; }
+
+    /* Subway toggle — distinct teal color so it reads as a layer toggle */
+    .btn.subway-active { background: #0f766e; color: #fff; border-color: #14b8a6; }
+    .btn.subway-loading { opacity: 0.6; cursor: wait; }
   </style>
 </head>
 <body>
@@ -100,6 +104,11 @@
     <button class="btn" id="btn-queens"            onclick="setBorough('Queens County')">Queens</button>
     <button class="btn" id="btn-bronx"             onclick="setBorough('Bronx County')">Bronx</button>
     <button class="btn" id="btn-si"                onclick="setBorough('Richmond County')">Staten Island</button>
+  </div>
+  <div class="sep"></div>
+  <div class="ctrl-group">
+    <span class="ctrl-label">Overlay</span>
+    <button class="btn" id="btn-subway" onclick="toggleSubway()">Subway</button>
   </div>
 </div>
 
@@ -523,6 +532,116 @@ loadGeo()
         <small style="color:#64748b">${err.message}</small>
       </div>`;
   });
+
+// ─── Subway overlay ───────────────────────────────────────────────────────────
+const LINE_COLORS = {
+  '1':'#EE352E','2':'#EE352E','3':'#EE352E',
+  '4':'#00933C','5':'#00933C','6':'#00933C','6X':'#00933C',
+  '7':'#B933AD','7X':'#B933AD',
+  'A':'#0039A6','C':'#0039A6','E':'#0039A6',
+  'B':'#FF6319','D':'#FF6319','F':'#FF6319','FX':'#FF6319','M':'#FF6319',
+  'G':'#6CBE45',
+  'J':'#996633','Z':'#996633',
+  'L':'#A7A9AC',
+  'N':'#FCCC0A','Q':'#FCCC0A','R':'#FCCC0A','W':'#FCCC0A',
+  'S':'#808183','SI':'#0039A6',
+};
+
+function lineColor(routeSymbol) {
+  if (!routeSymbol) return '#aaa';
+  const key = routeSymbol.trim().toUpperCase();
+  return LINE_COLORS[key] || '#aaa';
+}
+
+let subwayVisible  = false;
+let subwayCache    = null;   // { lines, stations }
+let subwayLinesLayer    = null;
+let subwayStationsLayer = null;
+
+const SUBWAY_LINES_URL    = 'https://raw.githubusercontent.com/mmoranv/AccessibleNYC/master/data/subway_lines.geojson';
+const SUBWAY_STATIONS_URL = 'https://raw.githubusercontent.com/kevin-brown/nyc-open-geojson/master/transportation/subway-stations.geojson';
+
+async function fetchSubwayData() {
+  if (subwayCache) return subwayCache;
+  const [linesRes, stationsRes] = await Promise.all([
+    fetch(SUBWAY_LINES_URL),
+    fetch(SUBWAY_STATIONS_URL),
+  ]);
+  if (!linesRes.ok)    throw new Error('Could not load subway lines');
+  if (!stationsRes.ok) throw new Error('Could not load subway stations');
+  subwayCache = {
+    lines:    await linesRes.json(),
+    stations: await stationsRes.json(),
+  };
+  return subwayCache;
+}
+
+function addSubwayLayers(data) {
+  subwayLinesLayer = L.geoJSON(data.lines, {
+    style(f) {
+      const sym = f.properties.name || f.properties.rt_symbol || f.properties.NAME || '';
+      return {
+        color: lineColor(sym),
+        weight: 2.5,
+        opacity: 0.85,
+        interactive: false,
+      };
+    },
+  }).addTo(leafMap);
+
+  subwayStationsLayer = L.geoJSON(data.stations, {
+    pointToLayer(f, latlng) {
+      const lines = f.properties.LINE || '';
+      const name  = f.properties.NAME || '';
+      // Use the first line letter to pick color
+      const firstLine = lines.split('-')[0].trim();
+      return L.circleMarker(latlng, {
+        radius: 4,
+        fillColor: lineColor(firstLine),
+        color: '#fff',
+        weight: 1,
+        opacity: 1,
+        fillOpacity: 0.9,
+      });
+    },
+    onEachFeature(f, layer) {
+      const name  = f.properties.NAME || '';
+      const lines = f.properties.LINE || '';
+      layer.bindTooltip(
+        `<b>${name}</b><br><span style="color:#94a3b8;font-size:0.7rem">${lines}</span>`,
+        { sticky: true, opacity: 1, className: 'dtt' }
+      );
+    },
+  }).addTo(leafMap);
+}
+
+function removeSubwayLayers() {
+  if (subwayLinesLayer)    { leafMap.removeLayer(subwayLinesLayer);    subwayLinesLayer    = null; }
+  if (subwayStationsLayer) { leafMap.removeLayer(subwayStationsLayer); subwayStationsLayer = null; }
+}
+
+async function toggleSubway() {
+  const btn = document.getElementById('btn-subway');
+  if (subwayVisible) {
+    removeSubwayLayers();
+    subwayVisible = false;
+    btn.classList.remove('subway-active');
+    return;
+  }
+  btn.classList.add('subway-loading');
+  btn.disabled = true;
+  try {
+    const data = await fetchSubwayData();
+    addSubwayLayers(data);
+    subwayVisible = true;
+    btn.classList.add('subway-active');
+  } catch(err) {
+    alert('Could not load subway data: ' + err.message);
+  } finally {
+    btn.classList.remove('subway-loading');
+    btn.disabled = false;
+  }
+}
 </script>
 </body>
 </html>
