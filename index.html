@@ -10,9 +10,7 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d0f1a; color: #e2e8f0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
-    #header { padding: 12px 20px; background: #111827; border-bottom: 1px solid #1e293b; flex-shrink: 0; }
-    #header h1 { font-size: 1.15rem; font-weight: 700; color: #f1f5f9; letter-spacing: -0.01em; }
-    #header p { font-size: 0.72rem; color: #64748b; margin-top: 2px; }
+    #header { padding: 10px 20px; background: #111827; border-bottom: 1px solid #1e293b; flex-shrink: 0; }
 
     #controls {
       display: flex; align-items: center; gap: 8px; padding: 8px 20px;
@@ -82,13 +80,118 @@
     .btn.parks-active  { background: #15803d; color: #fff; border-color: #22c55e; }
     .btn.income-active { background: #6d28d9; color: #fff; border-color: #8b5cf6; }
     .btn.subway-loading, .btn.parks-loading, .btn.income-loading { opacity: 0.6; cursor: wait; }
+
+    /* ── Header nav ── */
+    #header { display: flex; align-items: center; justify-content: space-between; }
+    #header-left h1 { font-size: 1.15rem; font-weight: 700; color: #f1f5f9; letter-spacing: -0.01em; }
+    #header-left p  { font-size: 0.72rem; color: #64748b; margin-top: 2px; }
+    #header-nav a {
+      font-size: 0.78rem; color: #94a3b8; text-decoration: none;
+      padding: 5px 12px; border: 1px solid #1e293b; border-radius: 5px;
+      transition: all 0.15s; white-space: nowrap;
+    }
+    #header-nav a:hover { background: #1e293b; color: #e2e8f0; }
+
+    /* ── Modal ── */
+    #modal-backdrop {
+      display: none; position: fixed; inset: 0; z-index: 5000;
+      background: #000a; backdrop-filter: blur(3px);
+      align-items: center; justify-content: center;
+    }
+    #modal-backdrop.open { display: flex; }
+    #modal {
+      background: #111827; border: 1px solid #1e293b; border-radius: 12px;
+      width: min(780px, 92vw); max-height: 85vh;
+      display: flex; flex-direction: column;
+      box-shadow: 0 24px 60px #0009;
+    }
+    #modal-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 24px 14px; border-bottom: 1px solid #1e293b; flex-shrink: 0;
+    }
+    #modal-header h2 { font-size: 1rem; font-weight: 700; color: #f1f5f9; }
+    #modal-close {
+      background: none; border: none; color: #64748b; font-size: 1.4rem;
+      cursor: pointer; line-height: 1; padding: 2px 6px; border-radius: 4px;
+      transition: color 0.15s;
+    }
+    #modal-close:hover { color: #e2e8f0; }
+    #modal-body {
+      overflow-y: auto; padding: 24px 28px; font-size: 0.85rem;
+      line-height: 1.75; color: #cbd5e1;
+    }
+    #modal-body h1 { font-size: 1.15rem; font-weight: 700; color: #f1f5f9; margin-bottom: 4px; line-height: 1.35; }
+    #modal-body .byline { font-size: 0.72rem; color: #475569; margin-bottom: 24px; font-style: italic; }
+    #modal-body h2 { font-size: 0.95rem; font-weight: 700; color: #e2e8f0; margin: 24px 0 8px; }
+    #modal-body h3 { font-size: 0.83rem; font-weight: 700; color: #94a3b8; margin: 18px 0 6px; }
+    #modal-body p  { margin-bottom: 12px; }
+    #modal-body a  { color: #60a5fa; text-decoration: none; }
+    #modal-body a:hover { text-decoration: underline; }
+    #modal-body hr { border: none; border-top: 1px solid #1e293b; margin: 20px 0; }
+    #modal-body strong { color: #e2e8f0; }
   </style>
 </head>
 <body>
 
+<!-- Modal backdrop -->
+<div id="modal-backdrop" onclick="closeModalOnBackdrop(event)">
+  <div id="modal">
+    <div id="modal-header">
+      <h2>About This Project</h2>
+      <button id="modal-close" onclick="closeModal()" title="Close">&times;</button>
+    </div>
+    <div id="modal-body">
+      <h1>Building an Interactive NYC Housing Value Map: A Collaboration with Claude</h1>
+      <p class="byline">Written by Claude &bull; April 2026</p>
+      <hr>
+
+      <h2>The Data and Why It Matters</h2>
+      <p>New York City's housing market is one of the most closely watched — and most unequal — in the world. But aggregate statistics tend to flatten the texture of what's actually happening on the ground. A citywide median home value tells you very little about the difference between a two-bedroom in Tribeca and a row house in the East Bronx, or about which neighborhoods are appreciating fastest and which are softening.</p>
+      <p>The dataset at the center of this project addresses that granularity problem directly. Compiled from Zillow's housing data and published at <a href="https://jam9501.github.io/NYC_housing/" target="_blank">jam9501.github.io/NYC_housing</a>, it tracks estimated home values for 160 ZIP codes across all five NYC boroughs, comparing February 2025 to February 2026. Each ZIP code entry includes three figures: the Feb 2025 value, the Feb 2026 value, and the year-over-year percentage change.</p>
+      <p>The range is striking. On one end, ZIP code 10462 in the Bronx shows a median home value of $238,668 — on the other, 10013 in SoHo clocks in at $3.67 million. That's more than a 15x spread within the same city. The year-over-year changes are equally telling: the South Bronx ZIP codes 10451 and 10456 posted some of the highest growth rates in the dataset (9.1% and 11.2% respectively), while parts of Midtown Manhattan like 10018 and 10036 actually declined. This kind of data — granular, comparative, and temporally specific — is exactly what an interactive map is built to communicate.</p>
+      <hr>
+
+      <h2>From Table to Map: The Build Process</h2>
+
+      <h3>Choosing the Right Tool</h3>
+      <p>The goal was a self-contained, embeddable web map that could be hosted on GitHub Pages and dropped into a Squarespace site via iframe. That ruled out heavier frameworks and pointed squarely toward <strong>Leaflet.js</strong> — a lightweight, battle-tested JavaScript mapping library with excellent GeoJSON support and a rich ecosystem. For the basemap tiles, I used CartoDB's dark theme, which provides enough geographic context without competing visually with the choropleth colors.</p>
+
+      <h3>Getting the ZIP Code Boundaries</h3>
+      <p>The first real challenge was sourcing polygon boundaries for NYC's ZIP codes. The NYC Open Data export API returned HTTP 400 errors on initial attempts, so I fell back to a GitHub-hosted GeoJSON that proved reliable and came with a useful bonus: a <code>PO_NAME</code> field containing neighborhood names like "Jackson Heights" or "Flatbush," which I was able to surface in the hover tooltips.</p>
+
+      <h3>Two Color Modes, Two Design Problems</h3>
+      <p>The map offers two ways to color the ZIPs: by <strong>Feb 2026 home value</strong> and by <strong>year-over-year percentage change</strong>. Each required a different color design approach.</p>
+      <p>For home values, the naive approach — a linear color scale from minimum to maximum — produced a nearly monochromatic map. The problem is that housing values in NYC are heavily right-skewed: most ZIPs cluster in the $400K–$1.2M range, while a handful of Manhattan ZIPs push $2M–$3.7M. A linear scale wastes most of its dynamic range on those outliers. The fix was a <strong>log-normalized scale</strong>: by mapping <code>log(value)</code> rather than <code>value</code> to the 0–1 color range, the color differences in the common price bands become much more visible. I paired this with a seven-stop palette running from deep purple (cheapest) through blue, cyan, teal, yellow, and orange to dark red (most expensive).</p>
+      <p>For year-over-year change, I needed a <strong>diverging scale</strong> — red for declining values, green for growth, with neutral gray anchored at zero. Rather than a symmetric design, I scaled each arm independently to the actual min (−6.96%) and max (+11.55%), so the full color range is used on both sides regardless of whether gains or losses are larger.</p>
+
+      <h3>The Three Overlays</h3>
+      <p><strong>Subway system.</strong> Lines came from a GitHub-hosted GeoJSON and stations from a converted NYC Open Data set. Each line is drawn in its official MTA color — the 1/2/3 in red, the A/C/E in blue, the N/Q/R/W in yellow, and so on — using a lookup table built from the MTA's standard palette. Station markers are small circles colored to match their primary line, with tooltips showing the station name and all served lines.</p>
+      <p><strong>Public parks.</strong> NYC Parks Department properties came from the NYC Open Data Socrata API, which returned about 4,600 polygon features covering everything from Flagship Parks like Central Park down to small triangles and plazas. These render as semi-transparent green polygons with hover highlighting and tooltips showing the park name, type category, and acreage.</p>
+      <p><strong>Median household income by census tract.</strong> This was the most technically involved overlay, because it required joining two separate datasets in the browser at runtime. The 2020 census tract boundaries came from NYC Open Data, which includes a <code>geoid</code> field — the standard 11-digit Census FIPS identifier. The income data came from the Census Bureau's ACS 5-year 2023 API, fetching variable <code>B19013_001E</code> (median household income) for all census tracts in the five NYC counties. I constructed the GEOID from the API response fields and joined the two datasets on that key entirely in JavaScript, with no backend required.</p>
+      <p>The income choropleth uses the ColorBrewer YlGnBu palette — pale yellow for lower incomes through teal to navy for the highest — again log-normalized. One design detail: when the income overlay is toggled on, the ZIP choropleth automatically dims to 22% fill opacity (from its normal 82%), so the census tract colors are clearly visible while the ZIP boundaries remain as light context lines. Toggling income off restores the ZIP layer to full opacity.</p>
+
+      <h3>The Legend System</h3>
+      <p>The legend panel in the lower right updates dynamically based on which mode is active. When the income overlay is toggled on, a second color bar appears above the home value bar, labeled with the actual min, log-midpoint, and max income values from the fetched data. Toggling the overlay off removes it again.</p>
+
+      <h3>Deployment</h3>
+      <p>The finished map is a single <code>index.html</code> file with all data embedded and all dependencies loaded from CDNs. It is hosted on GitHub Pages and can be embedded on any page with a simple <code>&lt;iframe&gt;</code> tag.</p>
+      <hr>
+
+      <h2>What the Map Shows</h2>
+      <p>With all the layers on at once, the map tells a layered story. The wealthiest ZIP codes cluster in lower and midtown Manhattan, the western Brooklyn waterfront, and pockets of northeastern Queens — broadly following the subway lines that give those neighborhoods the best access to jobs. The fastest-appreciating areas tend to be in the South Bronx and central Brooklyn: neighborhoods where values are still relatively low by NYC standards but where demand is climbing.</p>
+      <p>The income overlay makes the underlying correlation legible at a finer grain than ZIP codes alone can capture, with many census tracts showing sharp income gradients even within a single ZIP code. The parks overlay adds one more dimension: a useful reminder of how much of the city's land area is actually green space, and how unevenly that green space is distributed relative to where the housing pressure is highest.</p>
+    </div>
+  </div>
+</div>
+
 <div id="header">
-  <h1>NYC Home Values by ZIP Code</h1>
-  <p>Zillow data &bull; Feb 2025 &rarr; Feb 2026 &bull; 160 ZIP codes &bull; Source: jam9501.github.io/NYC_housing</p>
+  <div id="header-left">
+    <h1>NYC Home Values by ZIP Code</h1>
+    <p>Zillow data &bull; Feb 2025 &rarr; Feb 2026 &bull; 160 ZIP codes &bull; Source: jam9501.github.io/NYC_housing</p>
+  </div>
+  <nav id="header-nav">
+    <a href="#" onclick="openModal(); return false;">About This Project</a>
+  </nav>
 </div>
 
 <div id="controls">
@@ -823,6 +926,20 @@ async function toggleParks() {
     btn.disabled = false;
   }
 }
+
+// ─── Modal ────────────────────────────────────────────────────────────────────
+function openModal() {
+  document.getElementById('modal-backdrop').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeModal() {
+  document.getElementById('modal-backdrop').classList.remove('open');
+  document.body.style.overflow = '';
+}
+function closeModalOnBackdrop(e) {
+  if (e.target === document.getElementById('modal-backdrop')) closeModal();
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
 async function toggleSubway() {
   const btn = document.getElementById('btn-subway');
