@@ -77,9 +77,10 @@
     }
     .leaflet-tooltip.dtt::before { display: none; }
 
-    /* Subway toggle — distinct teal color so it reads as a layer toggle */
+    /* Layer toggles — distinct colors so they read as overlay controls */
     .btn.subway-active { background: #0f766e; color: #fff; border-color: #14b8a6; }
-    .btn.subway-loading { opacity: 0.6; cursor: wait; }
+    .btn.parks-active  { background: #15803d; color: #fff; border-color: #22c55e; }
+    .btn.subway-loading, .btn.parks-loading { opacity: 0.6; cursor: wait; }
   </style>
 </head>
 <body>
@@ -109,6 +110,7 @@
   <div class="ctrl-group">
     <span class="ctrl-label">Overlay</span>
     <button class="btn" id="btn-subway" onclick="toggleSubway()">Subway</button>
+    <button class="btn" id="btn-parks"  onclick="toggleParks()">Parks</button>
   </div>
 </div>
 
@@ -618,6 +620,76 @@ function addSubwayLayers(data) {
 function removeSubwayLayers() {
   if (subwayLinesLayer)    { leafMap.removeLayer(subwayLinesLayer);    subwayLinesLayer    = null; }
   if (subwayStationsLayer) { leafMap.removeLayer(subwayStationsLayer); subwayStationsLayer = null; }
+}
+
+// ─── Parks overlay ────────────────────────────────────────────────────────────
+// Fetch all NYC park properties from the NYC Open Data Socrata API.
+// $limit=5000 covers the full dataset (~4,600 properties).
+const PARKS_URL = 'https://data.cityofnewyork.us/resource/enfh-gkve.geojson?$limit=5000';
+
+let parksVisible = false;
+let parksCache   = null;
+let parksLayer   = null;
+
+async function fetchParksData() {
+  if (parksCache) return parksCache;
+  const r = await fetch(PARKS_URL);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  parksCache = await r.json();
+  return parksCache;
+}
+
+function addParksLayer(data) {
+  parksLayer = L.geoJSON(data, {
+    style() {
+      return {
+        fillColor: '#16a34a',
+        fillOpacity: 0.35,
+        color: '#4ade80',
+        weight: 0.8,
+        opacity: 0.6,
+      };
+    },
+    onEachFeature(f, layer) {
+      const name = f.properties.name311 || f.properties.signname || 'Park';
+      const type = f.properties.typecategory || '';
+      const acres = f.properties.acres ? parseFloat(f.properties.acres).toFixed(1) + ' ac' : '';
+      layer.bindTooltip(
+        `<b>${name}</b>${type ? '<br><span style="color:#94a3b8;font-size:0.7rem">' + type + (acres ? ' &bull; ' + acres : '') + '</span>' : ''}`,
+        { sticky: true, opacity: 1, className: 'dtt' }
+      );
+      layer.on({
+        mouseover(e) { e.target.setStyle({ fillOpacity: 0.6, weight: 1.5 }); },
+        mouseout(e)  { parksLayer.resetStyle(e.target); },
+      });
+    },
+  }).addTo(leafMap);
+  // Keep subway on top if visible
+  if (subwayLinesLayer)    subwayLinesLayer.bringToFront();
+  if (subwayStationsLayer) subwayStationsLayer.bringToFront();
+}
+
+async function toggleParks() {
+  const btn = document.getElementById('btn-parks');
+  if (parksVisible) {
+    if (parksLayer) { leafMap.removeLayer(parksLayer); parksLayer = null; }
+    parksVisible = false;
+    btn.classList.remove('parks-active');
+    return;
+  }
+  btn.classList.add('parks-loading');
+  btn.disabled = true;
+  try {
+    const data = await fetchParksData();
+    addParksLayer(data);
+    parksVisible = true;
+    btn.classList.add('parks-active');
+  } catch(err) {
+    alert('Could not load parks data: ' + err.message);
+  } finally {
+    btn.classList.remove('parks-loading');
+    btn.disabled = false;
+  }
 }
 
 async function toggleSubway() {
