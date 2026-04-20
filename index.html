@@ -80,7 +80,8 @@
     /* Layer toggles — distinct colors so they read as overlay controls */
     .btn.subway-active { background: #0f766e; color: #fff; border-color: #14b8a6; }
     .btn.parks-active  { background: #15803d; color: #fff; border-color: #22c55e; }
-    .btn.subway-loading, .btn.parks-loading { opacity: 0.6; cursor: wait; }
+    .btn.income-active { background: #6d28d9; color: #fff; border-color: #8b5cf6; }
+    .btn.subway-loading, .btn.parks-loading, .btn.income-loading { opacity: 0.6; cursor: wait; }
   </style>
 </head>
 <body>
@@ -111,6 +112,7 @@
     <span class="ctrl-label">Overlay</span>
     <button class="btn" id="btn-subway" onclick="toggleSubway()">Subway</button>
     <button class="btn" id="btn-parks"  onclick="toggleParks()">Parks</button>
+    <button class="btn" id="btn-income" onclick="toggleIncome()">Median Income</button>
   </div>
 </div>
 
@@ -399,7 +401,8 @@ function featureStyle(f) {
   const vis = d && (borough === 'all' || d.county === borough);
   if (!d || !vis) return { fillColor: '#0d0f1a', weight: 0.5, opacity: 0.3, color: '#1e293b', fillOpacity: 0.12 };
   const color = mode === 'value' ? valueColor(d.v26) : changeColor(d.pct);
-  return { fillColor: color, weight: 0.8, opacity: 0.7, color: '#1e293b', fillOpacity: 0.82 };
+  // Dim ZIP fill when income overlay is on so both layers are readable
+  return { fillColor: color, weight: 0.8, opacity: 0.7, color: '#1e293b', fillOpacity: incomeVisible ? 0.22 : 0.82 };
 }
 
 function onEach(f, layer) {
@@ -535,6 +538,122 @@ loadGeo()
       </div>`;
   });
 
+// ─── Income overlay ───────────────────────────────────────────────────────────
+// Boundaries: NYC Open Data 2020 census tracts (geoid field for joining)
+// Income:     ACS 5-year 2023, B19013_001E = median household income
+const INCOME_GEO_URL = 'https://data.cityofnewyork.us/resource/63ge-mke6.geojson?$limit=3000';
+const INCOME_ACS_URL = 'https://api.census.gov/data/2023/acs/acs5?get=B19013_001E&for=tract:*&in=state:36%20county:005,047,061,081,085';
+
+let incomeCache = null;
+let incomeLayer = null;
+
+// YlGnBu: pale yellow → teal → navy (low → high income)
+const INCOME_STOPS = [
+  [0.00, [255, 255, 212]],
+  [0.25, [161, 218, 180]],
+  [0.50, [65,  182, 196]],
+  [0.75, [44,  127, 184]],
+  [1.00, [12,   44, 132]],
+];
+
+function incomeColor(income, logMin, logMax) {
+  const t = (Math.log(income) - logMin) / (logMax - logMin);
+  const [r, g, b] = multiStop(INCOME_STOPS, clamp(t, 0, 1));
+  return `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
+}
+
+function fmtIncome(n) { return '$' + Math.round(n).toLocaleString(); }
+
+async function fetchIncomeData() {
+  if (incomeCache) return incomeCache;
+  const [geoRes, acsRes] = await Promise.all([fetch(INCOME_GEO_URL), fetch(INCOME_ACS_URL)]);
+  if (!geoRes.ok) throw new Error('Census tract boundaries: HTTP ' + geoRes.status);
+  if (!acsRes.ok) throw new Error('ACS income data: HTTP ' + acsRes.status);
+
+  const geo = await geoRes.json();
+  const acs = await acsRes.json();
+
+  const headers    = acs[0];
+  const incomeIdx  = headers.indexOf('B19013_001E');
+  const stateIdx   = headers.indexOf('state');
+  const countyIdx  = headers.indexOf('county');
+  const tractIdx   = headers.indexOf('tract');
+
+  const incomeByGeoid = {};
+  const vals = [];
+  for (let i = 1; i < acs.length; i++) {
+    const row    = acs[i];
+    const income = parseInt(row[incomeIdx]);
+    if (income <= 0) continue;
+    const geoid  = row[stateIdx] + row[countyIdx] + row[tractIdx];
+    incomeByGeoid[geoid] = income;
+    vals.push(income);
+  }
+
+  const logMin = Math.log(Math.min(...vals));
+  const logMax = Math.log(Math.max(...vals));
+  const minIncome = Math.min(...vals);
+  const maxIncome = Math.max(...vals);
+  incomeCache = { geo, incomeByGeoid, logMin, logMax, minIncome, maxIncome };
+  return incomeCache;
+}
+
+function addIncomeLayer(cache) {
+  const { geo, incomeByGeoid, logMin, logMax } = cache;
+  incomeLayer = L.geoJSON(geo, {
+    style(f) {
+      const income = incomeByGeoid[f.properties.geoid];
+      if (!income) return { fillColor: '#1e293b', fillOpacity: 0.25, color: '#334', weight: 0.3, opacity: 0.3 };
+      return { fillColor: incomeColor(income, logMin, logMax), fillOpacity: 0.82, color: '#1e293b', weight: 0.4, opacity: 0.5 };
+    },
+    onEachFeature(f, layer) {
+      const income = incomeByGeoid[f.properties.geoid];
+      const tract  = f.properties.ctlabel || '';
+      const hood   = f.properties.ntaname || '';
+      const boro   = f.properties.boroname || '';
+      const incStr = income ? fmtIncome(income) : 'No data';
+      layer.bindTooltip(
+        `<b>Tract ${tract}${hood ? ' &mdash; ' + hood : ''}</b><br>${boro}<br><span style="color:#94a3b8;font-size:0.7rem">Median HH income: ${incStr}</span>`,
+        { sticky: true, opacity: 1, className: 'dtt' }
+      );
+      layer.on({
+        mouseover(e) { if (income) e.target.setStyle({ fillOpacity: 0.95, weight: 1.2, color: '#94a3b8' }); },
+        mouseout(e)  { incomeLayer.resetStyle(e.target); },
+      });
+    },
+  }).addTo(leafMap);
+
+  // ZIP layer dims (via featureStyle) — refresh it, then keep subway on top
+  if (geoLayer) geoLayer.setStyle(featureStyle);
+  if (subwayLinesLayer)    subwayLinesLayer.bringToFront();
+  if (subwayStationsLayer) subwayStationsLayer.bringToFront();
+}
+
+async function toggleIncome() {
+  const btn = document.getElementById('btn-income');
+  if (incomeVisible) {
+    if (incomeLayer) { leafMap.removeLayer(incomeLayer); incomeLayer = null; }
+    incomeVisible = false;
+    btn.classList.remove('income-active');
+    if (geoLayer) geoLayer.setStyle(featureStyle);  // restore ZIP opacity
+    return;
+  }
+  btn.classList.add('income-loading');
+  btn.disabled = true;
+  try {
+    const data = await fetchIncomeData();
+    incomeVisible = true;
+    addIncomeLayer(data);
+    btn.classList.add('income-active');
+  } catch(err) {
+    incomeVisible = false;
+    alert('Could not load income data: ' + err.message);
+  } finally {
+    btn.classList.remove('income-loading');
+    btn.disabled = false;
+  }
+}
+
 // ─── Subway overlay ───────────────────────────────────────────────────────────
 const LINE_COLORS = {
   '1':'#EE352E','2':'#EE352E','3':'#EE352E',
@@ -554,6 +673,8 @@ function lineColor(routeSymbol) {
   const key = routeSymbol.trim().toUpperCase();
   return LINE_COLORS[key] || '#aaa';
 }
+
+let incomeVisible  = false;  // declared here so featureStyle can reference it
 
 let subwayVisible  = false;
 let subwayCache    = null;   // { lines, stations }
