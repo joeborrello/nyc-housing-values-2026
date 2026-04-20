@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NYC Home Values by ZIP Code</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d0f1a; color: #e2e8f0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    #header { padding: 12px 20px; background: #111827; border-bottom: 1px solid #1e293b; flex-shrink: 0; }
+    #header h1 { font-size: 1.15rem; font-weight: 700; color: #f1f5f9; letter-spacing: -0.01em; }
+    #header p { font-size: 0.72rem; color: #64748b; margin-top: 2px; }
+
+    #controls {
+      display: flex; align-items: center; gap: 8px; padding: 8px 20px;
+      background: #111827; border-bottom: 1px solid #1e293b; flex-shrink: 0; flex-wrap: wrap;
+    }
+    .ctrl-group { display: flex; align-items: center; gap: 5px; }
+    .ctrl-label { font-size: 0.7rem; color: #475569; text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap; }
+    .sep { width: 1px; height: 20px; background: #1e293b; margin: 0 4px; }
+    .btn {
+      padding: 4px 12px; border: 1px solid #1e293b; background: transparent;
+      color: #94a3b8; border-radius: 5px; cursor: pointer; font-size: 0.75rem;
+      transition: all 0.15s; white-space: nowrap;
+    }
+    .btn:hover:not(.active) { background: #1e293b; color: #cbd5e1; }
+    .btn.active { background: #1d4ed8; color: #fff; border-color: #2563eb; }
+
+    #map-wrap { flex: 1; position: relative; overflow: hidden; }
+    #map { width: 100%; height: 100%; }
+
+    #loading {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; z-index: 2000;
+      background: #0d0f1acc; gap: 14px;
+    }
+    .spinner {
+      width: 36px; height: 36px; border: 3px solid #1e293b;
+      border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.75s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading p { font-size: 0.85rem; color: #64748b; }
+
+    #legend {
+      position: absolute; bottom: 28px; right: 10px; z-index: 1000;
+      background: #111827ee; border: 1px solid #1e293b; border-radius: 8px;
+      padding: 12px 14px; min-width: 190px; backdrop-filter: blur(4px);
+    }
+    #legend h4 { font-size: 0.68rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 8px; }
+    .legend-gradient { height: 10px; border-radius: 3px; margin-bottom: 5px; }
+    .legend-ticks { display: flex; justify-content: space-between; font-size: 0.65rem; color: #64748b; }
+
+    /* Popup */
+    .leaflet-popup-content-wrapper {
+      background: #111827; border: 1px solid #1e293b; border-radius: 9px;
+      color: #e2e8f0; box-shadow: 0 8px 32px #0007; padding: 0;
+    }
+    .leaflet-popup-content { margin: 14px 16px; min-width: 180px; }
+    .leaflet-popup-tip { background: #111827; }
+    .leaflet-popup-close-button { color: #64748b !important; top: 8px !important; right: 10px !important; font-size: 16px !important; }
+    .p-zip { font-size: 1rem; font-weight: 700; color: #f1f5f9; }
+    .p-borough { font-size: 0.72rem; color: #64748b; margin: 2px 0 10px; }
+    .p-row { display: flex; justify-content: space-between; gap: 24px; margin: 4px 0; font-size: 0.78rem; }
+    .p-lbl { color: #64748b; }
+    .p-val { font-weight: 600; color: #e2e8f0; }
+    .up { color: #34d399; font-weight: 700; }
+    .dn { color: #f87171; font-weight: 700; }
+
+    /* Dark tooltip */
+    .leaflet-tooltip.dtt {
+      background: #111827; border: 1px solid #1e293b; color: #e2e8f0;
+      border-radius: 5px; font-size: 0.75rem; padding: 5px 9px;
+      box-shadow: 0 2px 8px #0005;
+    }
+    .leaflet-tooltip.dtt::before { display: none; }
+  </style>
+</head>
+<body>
+
+<div id="header">
+  <h1>NYC Home Values by ZIP Code</h1>
+  <p>Zillow data &bull; Feb 2025 &rarr; Feb 2026 &bull; 160 ZIP codes &bull; Source: jam9501.github.io/NYC_housing</p>
+</div>
+
+<div id="controls">
+  <div class="ctrl-group">
+    <span class="ctrl-label">Color by</span>
+    <button class="btn active" id="btn-value" onclick="setMode('value')">Feb 2026 Value</button>
+    <button class="btn" id="btn-change" onclick="setMode('change')">YoY % Change</button>
+  </div>
+  <div class="sep"></div>
+  <div class="ctrl-group">
+    <span class="ctrl-label">Borough</span>
+    <button class="btn active" id="btn-all"       onclick="setBorough('all')">All</button>
+    <button class="btn" id="btn-manhattan"         onclick="setBorough('New York County')">Manhattan</button>
+    <button class="btn" id="btn-brooklyn"          onclick="setBorough('Kings County')">Brooklyn</button>
+    <button class="btn" id="btn-queens"            onclick="setBorough('Queens County')">Queens</button>
+    <button class="btn" id="btn-bronx"             onclick="setBorough('Bronx County')">Bronx</button>
+    <button class="btn" id="btn-si"                onclick="setBorough('Richmond County')">Staten Island</button>
+  </div>
+</div>
+
+<div id="map-wrap">
+  <div id="map"></div>
+  <div id="loading"><div class="spinner"></div><p>Loading ZIP code boundaries&hellip;</p></div>
+  <div id="legend">
+    <h4 id="leg-title">Feb 2026 Home Value</h4>
+    <div class="legend-gradient" id="leg-bar"></div>
+    <div class="legend-ticks"><span id="leg-lo"></span><span id="leg-mid"></span><span id="leg-hi"></span></div>
+  </div>
+</div>
+
+<script>
+// ─── Dataset ──────────────────────────────────────────────────────────────────
+const ROWS = [
+  ["10001","New York County",1735145,1723058,-0.70],
+  ["10002","New York County",990264,1000394,1.02],
+  ["10003","New York County",1300805,1349064,3.71],
+  ["10004","New York County",1131091,1180935,4.41],
+  ["10005","New York County",1094385,1101269,0.63],
+  ["10006","New York County",1061557,1048805,-1.20],
+  ["10007","New York County",2980451,3117177,4.59],
+  ["10009","New York County",950000,1001337,5.40],
+  ["10010","New York County",1280936,1292593,0.91],
+  ["10011","New York County",1558151,1592159,2.18],
+  ["10012","New York County",2513732,2804187,11.55],
+  ["10013","New York County",3421732,3677140,7.46],
+  ["10014","New York County",1785690,1795437,0.55],
+  ["10016","New York County",937251,925110,-1.30],
+  ["10017","New York County",732075,761612,4.03],
+  ["10018","New York County",1490885,1387177,-6.96],
+  ["10019","New York County",1173276,1215147,3.57],
+  ["10021","New York County",1501787,1506928,0.34],
+  ["10022","New York County",1111351,1146631,3.17],
+  ["10023","New York County",1415487,1418526,0.21],
+  ["10024","New York County",1492837,1558744,4.41],
+  ["10025","New York County",1097462,1093279,-0.38],
+  ["10026","New York County",850270,838601,-1.37],
+  ["10027","New York County",825595,817998,-0.92],
+  ["10028","New York County",1440944,1461101,1.40],
+  ["10029","New York County",753247,737976,-2.03],
+  ["10030","New York County",706227,684889,-3.02],
+  ["10031","New York County",535372,532179,-0.60],
+  ["10032","New York County",519435,522155,0.52],
+  ["10033","New York County",580529,599349,3.24],
+  ["10034","New York County",480320,464186,-3.36],
+  ["10035","New York County",708740,700299,-1.19],
+  ["10036","New York County",1055392,1005071,-4.77],
+  ["10037","New York County",579660,566862,-2.21],
+  ["10039","New York County",633347,617328,-2.53],
+  ["10040","New York County",509450,495885,-2.66],
+  ["10044","New York County",978179,944961,-3.40],
+  ["10065","New York County",1564287,1670766,6.81],
+  ["10069","New York County",1922042,1891107,-1.61],
+  ["10075","New York County",1228743,1207355,-1.74],
+  ["10128","New York County",1170075,1170809,0.06],
+  ["10280","New York County",780018,776920,-0.40],
+  ["10282","New York County",1984797,2160426,8.85],
+  ["10301","Richmond County",672405,701961,4.40],
+  ["10302","Richmond County",599925,626824,4.48],
+  ["10303","Richmond County",521972,544710,4.36],
+  ["10304","Richmond County",665609,694915,4.40],
+  ["10305","Richmond County",691005,720357,4.25],
+  ["10306","Richmond County",708384,744762,5.14],
+  ["10307","Richmond County",780231,825673,5.82],
+  ["10308","Richmond County",686237,723461,5.42],
+  ["10309","Richmond County",752446,781873,3.91],
+  ["10310","Richmond County",652360,686771,5.27],
+  ["10312","Richmond County",717427,752104,4.83],
+  ["10314","Richmond County",662712,700935,5.77],
+  ["10451","Bronx County",304333,331929,9.07],
+  ["10452","Bronx County",288879,319081,10.45],
+  ["10453","Bronx County",554058,582663,5.16],
+  ["10454","Bronx County",734190,786661,7.15],
+  ["10455","Bronx County",453510,477782,5.35],
+  ["10456","Bronx County",406578,452100,11.20],
+  ["10457","Bronx County",489801,509220,3.96],
+  ["10458","Bronx County",406479,424337,4.39],
+  ["10459","Bronx County",475314,505420,6.33],
+  ["10460","Bronx County",490557,526361,7.30],
+  ["10461","Bronx County",681887,715394,4.91],
+  ["10462","Bronx County",234093,238668,1.95],
+  ["10463","Bronx County",380933,374153,-1.78],
+  ["10464","Bronx County",658032,661856,0.58],
+  ["10465","Bronx County",632117,674491,6.70],
+  ["10466","Bronx County",608028,655681,7.84],
+  ["10467","Bronx County",390445,419871,7.54],
+  ["10468","Bronx County",262853,268268,2.06],
+  ["10469","Bronx County",632737,683409,8.01],
+  ["10470","Bronx County",596068,650578,9.14],
+  ["10471","Bronx County",420966,431319,2.46],
+  ["10472","Bronx County",647879,681275,5.15],
+  ["10473","Bronx County",525541,547056,4.09],
+  ["11004","Queens County",610827,620158,1.53],
+  ["11101","Queens County",1139948,1142758,0.25],
+  ["11102","Queens County",700525,705539,0.72],
+  ["11103","Queens County",963077,1036165,7.59],
+  ["11104","Queens County",550874,541001,-1.79],
+  ["11105","Queens County",1039355,1121896,7.94],
+  ["11106","Queens County",637537,662771,3.96],
+  ["11201","Kings County",1292881,1340176,3.66],
+  ["11203","Kings County",681918,711495,4.34],
+  ["11204","Kings County",1137999,1206484,6.02],
+  ["11205","Kings County",981142,1046038,6.61],
+  ["11206","Kings County",981346,1044769,6.46],
+  ["11207","Kings County",619123,634052,2.41],
+  ["11208","Kings County",690110,724697,5.01],
+  ["11209","Kings County",777266,805854,3.68],
+  ["11210","Kings County",833230,900629,8.09],
+  ["11211","Kings County",1285212,1351648,5.17],
+  ["11212","Kings County",651617,652034,0.06],
+  ["11213","Kings County",983708,1075127,9.29],
+  ["11214","Kings County",723695,747662,3.31],
+  ["11215","Kings County",1367838,1436746,5.04],
+  ["11216","Kings County",1124813,1189844,5.78],
+  ["11217","Kings County",1430024,1520189,6.31],
+  ["11218","Kings County",896526,913811,1.93],
+  ["11219","Kings County",1114975,1180364,5.86],
+  ["11220","Kings County",898573,927880,3.26],
+  ["11221","Kings County",974603,1043511,7.07],
+  ["11222","Kings County",1365236,1465798,7.37],
+  ["11223","Kings County",998798,1043220,4.45],
+  ["11224","Kings County",537900,556722,3.50],
+  ["11225","Kings County",1070179,1110339,3.75],
+  ["11226","Kings County",761674,770806,1.20],
+  ["11228","Kings County",1125477,1174385,4.35],
+  ["11229","Kings County",735809,755362,2.66],
+  ["11230","Kings County",873937,900583,3.05],
+  ["11231","Kings County",1662930,1687360,1.47],
+  ["11232","Kings County",764542,792755,3.69],
+  ["11233","Kings County",916306,1005949,9.78],
+  ["11234","Kings County",736738,764231,3.73],
+  ["11235","Kings County",583992,592117,1.39],
+  ["11236","Kings County",655078,682179,4.14],
+  ["11237","Kings County",1011791,1061809,4.94],
+  ["11238","Kings County",1151774,1202968,4.44],
+  ["11239","Kings County",669628,678975,1.40],
+  ["11249","Kings County",1458567,1475168,1.14],
+  ["11354","Queens County",647312,660431,2.03],
+  ["11355","Queens County",594317,599141,0.81],
+  ["11356","Queens County",784964,820636,4.54],
+  ["11357","Queens County",940470,999964,6.33],
+  ["11358","Queens County",1017260,1067104,4.90],
+  ["11360","Queens County",598356,624714,4.40],
+  ["11361","Queens County",936124,998576,6.67],
+  ["11362","Queens County",636300,692377,8.81],
+  ["11363","Queens County",1004143,1100454,9.59],
+  ["11364","Queens County",591342,627707,6.15],
+  ["11365","Queens County",945436,1003733,6.17],
+  ["11366","Queens County",1051359,1132489,7.72],
+  ["11367","Queens County",499165,511115,2.39],
+  ["11368","Queens County",518520,541021,4.34],
+  ["11369","Queens County",807679,840740,4.09],
+  ["11370","Queens County",779535,821610,5.40],
+  ["11372","Queens County",448031,424051,-5.35],
+  ["11373","Queens County",511178,521213,1.96],
+  ["11374","Queens County",428824,426368,-0.57],
+  ["11375","Queens County",511118,515019,0.76],
+  ["11377","Queens County",531265,547171,2.99],
+  ["11378","Queens County",840190,878223,4.53],
+  ["11379","Queens County",839767,897840,6.92],
+  ["11385","Queens County",837733,865571,3.32],
+  ["11411","Queens County",691156,707346,2.34],
+  ["11412","Queens County",693342,733050,5.73],
+  ["11413","Queens County",691832,730727,5.62],
+  ["11414","Queens County",586794,625052,6.52],
+  ["11415","Queens County",369500,375081,1.51],
+  ["11416","Queens County",713293,750765,5.25],
+  ["11417","Queens County",712421,752156,5.58],
+  ["11418","Queens County",705616,743083,5.31],
+  ["11419","Queens County",733911,759194,3.44],
+  ["11420","Queens County",718312,754428,5.03],
+  ["11421","Queens County",705222,732573,3.88],
+  ["11422","Queens County",699677,731817,4.59],
+  ["11423","Queens County",805126,823776,2.32],
+  ["11426","Queens County",756816,791161,4.54],
+  ["11427","Queens County",722995,772885,6.90],
+  ["11428","Queens County",724608,769074,6.14],
+  ["11429","Queens County",699253,744667,6.49],
+  ["11432","Queens County",847236,881236,4.01],
+  ["11433","Queens County",652944,709543,8.67],
+  ["11434","Queens County",669675,712086,6.33],
+  ["11435","Queens County",546398,578360,5.85],
+  ["11436","Queens County",624751,683929,9.47],
+  ["11691","Queens County",643733,678496,5.40],
+  ["11692","Queens County",587243,616154,4.92],
+  ["11694","Queens County",792709,858917,8.35],
+];
+
+// Build lookup
+const byZip = {};
+ROWS.forEach(([zip, county, v25, v26, pct]) => {
+  byZip[zip] = { zip, county, v25, v26, pct };
+});
+
+const vals26 = ROWS.map(r => r[3]);
+const pcts   = ROWS.map(r => r[4]);
+const minV = Math.min(...vals26), maxV = Math.max(...vals26);
+const minP = Math.min(...pcts),   maxP = Math.max(...pcts);
+
+// Borough display names
+const BOROUGH = {
+  'New York County': 'Manhattan',
+  'Kings County':    'Brooklyn',
+  'Queens County':   'Queens',
+  'Bronx County':    'The Bronx',
+  'Richmond County': 'Staten Island',
+};
+
+// ─── Color helpers ────────────────────────────────────────────────────────────
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function lerp(a, b, t)    { return a + (b - a) * clamp(t, 0, 1); }
+
+function multiStop(stops, t) {
+  for (let i = 0; i < stops.length - 1; i++) {
+    const [t0, c0] = stops[i], [t1, c1] = stops[i + 1];
+    if (t >= t0 && t <= t1) {
+      const f = (t - t0) / (t1 - t0);
+      return [lerp(c0[0], c1[0], f), lerp(c0[1], c1[1], f), lerp(c0[2], c1[2], f)];
+    }
+  }
+  return stops[stops.length - 1][1];
+}
+
+// Logarithmic normalization gives much better spread across the wide value range
+const logMinV = Math.log(minV), logMaxV = Math.log(maxV);
+
+// 7-stop palette: purple → blue → cyan → green → yellow → orange → red
+const VALUE_STOPS = [
+  [0.00, [88,  28, 135]],  // purple (cheapest)
+  [0.16, [37,  99, 235]],  // blue
+  [0.33, [6,  182, 212]],  // cyan
+  [0.50, [16, 185, 129]],  // teal-green
+  [0.67, [234,179,   8]],  // yellow
+  [0.83, [234, 88,  12]],  // orange
+  [1.00, [185, 28,  28]],  // dark red (most expensive)
+];
+
+function valueColor(v26) {
+  const t = (Math.log(v26) - logMinV) / (logMaxV - logMinV);
+  const [r, g, b] = multiStop(VALUE_STOPS, clamp(t, 0, 1));
+  return `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
+}
+
+// Diverging scale: vivid red → neutral gray → vivid green
+function changeColor(pct) {
+  if (pct < 0) {
+    const t = clamp(-pct / Math.abs(minP), 0, 1);
+    // gray(100,100,100) → red(220,38,38)
+    return `rgb(${Math.round(lerp(100,220,t))},${Math.round(lerp(100,38,t))},${Math.round(lerp(100,38,t))})`;
+  }
+  const t = clamp(pct / maxP, 0, 1);
+  // gray(100,100,100) → green(22,163,74)
+  return `rgb(${Math.round(lerp(100,22,t))},${Math.round(lerp(100,163,t))},${Math.round(lerp(100,74,t))})`;
+}
+
+// ─── Formatting ───────────────────────────────────────────────────────────────
+function fmtMoney(n) {
+  if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+  return '$' + Math.round(n).toLocaleString();
+}
+
+// ─── Map init ─────────────────────────────────────────────────────────────────
+const leafMap = L.map('map', { center: [40.7128, -73.95], zoom: 11 });
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; <a href="https://openstreetmap.org">OSM</a> &copy; <a href="https://carto.com">CARTO</a>',
+  subdomains: 'abcd', maxZoom: 19,
+}).addTo(leafMap);
+
+let mode    = 'value';
+let borough = 'all';
+let geoLayer = null;
+let geoData  = null;
+
+// ─── Styling ──────────────────────────────────────────────────────────────────
+function getZip(f) {
+  const p = f.properties;
+  return p.ZIPCODE || p.postalCode || p.zip || p.ZIP || p.ZCTA5CE10 || '';
+}
+
+function featureStyle(f) {
+  const zip = getZip(f);
+  const d   = byZip[zip];
+  const vis = d && (borough === 'all' || d.county === borough);
+  if (!d || !vis) return { fillColor: '#0d0f1a', weight: 0.5, opacity: 0.3, color: '#1e293b', fillOpacity: 0.12 };
+  const color = mode === 'value' ? valueColor(d.v26) : changeColor(d.pct);
+  return { fillColor: color, weight: 0.8, opacity: 0.7, color: '#1e293b', fillOpacity: 0.82 };
+}
+
+function onEach(f, layer) {
+  const zip  = getZip(f);
+  const d    = byZip[zip];
+  if (!d) return;
+  const hood = f.properties.PO_NAME || '';
+
+  layer.bindTooltip(
+    `<b>ZIP ${zip}</b>${hood ? ' &mdash; ' + hood : ''}<br>${BOROUGH[d.county] || d.county} &bull; ${fmtMoney(d.v26)}`,
+    { sticky: true, opacity: 1, className: 'dtt' }
+  );
+
+  layer.on({
+    mouseover(e) {
+      const vis = borough === 'all' || d.county === borough;
+      if (!vis) return;
+      e.target.setStyle({ weight: 2, color: '#94a3b8', fillOpacity: 0.95 });
+      e.target.bringToFront();
+    },
+    mouseout() { geoLayer.resetStyle(layer); },
+    click(e) {
+      const sign = d.pct >= 0 ? '+' : '';
+      const cls  = d.pct >= 0 ? 'up' : 'dn';
+      L.popup({ maxWidth: 260 })
+        .setLatLng(e.latlng)
+        .setContent(`
+          <div class="p-zip">ZIP ${d.zip}${hood ? ' &mdash; ' + hood : ''}</div>
+          <div class="p-borough">${BOROUGH[d.county] || d.county}</div>
+          <div class="p-row"><span class="p-lbl">Feb 2025</span><span class="p-val">${fmtMoney(d.v25)}</span></div>
+          <div class="p-row"><span class="p-lbl">Feb 2026</span><span class="p-val">${fmtMoney(d.v26)}</span></div>
+          <div class="p-row"><span class="p-lbl">YoY Change</span><span class="${cls}">${sign}${d.pct.toFixed(2)}%</span></div>
+        `)
+        .openOn(leafMap);
+    },
+  });
+}
+
+function renderLayer() {
+  if (geoLayer) { leafMap.removeLayer(geoLayer); }
+  geoLayer = L.geoJSON(geoData, { style: featureStyle, onEachFeature: onEach }).addTo(leafMap);
+  updateLegend();
+}
+
+// ─── Legend ───────────────────────────────────────────────────────────────────
+function updateLegend() {
+  const title = document.getElementById('leg-title');
+  const bar   = document.getElementById('leg-bar');
+  const lo    = document.getElementById('leg-lo');
+  const mid   = document.getElementById('leg-mid');
+  const hi    = document.getElementById('leg-hi');
+
+  if (mode === 'value') {
+    title.textContent = 'Feb 2026 Home Value';
+    bar.style.background = 'linear-gradient(to right,rgb(88,28,135),rgb(37,99,235),rgb(6,182,212),rgb(16,185,129),rgb(234,179,8),rgb(234,88,12),rgb(185,28,28))';
+    lo.textContent  = fmtMoney(minV);
+    mid.textContent = fmtMoney((minV + maxV) / 2);
+    hi.textContent  = fmtMoney(maxV);
+  } else {
+    title.textContent = 'YoY % Change';
+    bar.style.background = 'linear-gradient(to right,rgb(220,38,38),rgb(160,70,70),rgb(100,100,100),rgb(60,140,80),rgb(22,163,74))';
+    lo.textContent  = minP.toFixed(1) + '%';
+    mid.textContent = '0%';
+    hi.textContent  = '+' + maxP.toFixed(1) + '%';
+  }
+}
+
+// ─── Controls ─────────────────────────────────────────────────────────────────
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll('#btn-value,#btn-change').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn-' + m).classList.add('active');
+  if (geoLayer) renderLayer();
+}
+
+const BOROUGH_BTN = {
+  'all': 'btn-all', 'New York County': 'btn-manhattan', 'Kings County': 'btn-brooklyn',
+  'Queens County': 'btn-queens', 'Bronx County': 'btn-bronx', 'Richmond County': 'btn-si',
+};
+const BOROUGH_ZOOM = {
+  'New York County': [[40.680, -74.020], [40.882, -73.907]],
+  'Kings County':    [[40.570, -74.042], [40.739, -73.833]],
+  'Queens County':   [[40.540, -73.962], [40.800, -73.700]],
+  'Bronx County':    [[40.785, -73.934], [40.915, -73.748]],
+  'Richmond County': [[40.496, -74.260], [40.651, -74.034]],
+};
+
+function setBorough(b) {
+  borough = b;
+  Object.values(BOROUGH_BTN).forEach(id => document.getElementById(id).classList.remove('active'));
+  document.getElementById(BOROUGH_BTN[b]).classList.add('active');
+  if (geoLayer) {
+    geoLayer.setStyle(featureStyle);
+    if (b === 'all') {
+      leafMap.flyTo([40.7128, -73.95], 11, { duration: 0.7 });
+    } else {
+      const [[s, w], [n, e]] = BOROUGH_ZOOM[b];
+      leafMap.flyToBounds([[s, w], [n, e]], { padding: [20, 20], duration: 0.7 });
+    }
+  }
+}
+
+// ─── Load GeoJSON ─────────────────────────────────────────────────────────────
+// Try sources in order until one succeeds
+const GEO_SOURCES = [
+  'https://raw.githubusercontent.com/fedhere/PUI2015_EC/master/mam1612_EC/nyc-zip-code-tabulation-areas-polygons.geojson',
+  'https://data.cityofnewyork.us/api/geospatial/i8iw-xf4u?method=export&type=GeoJSON',
+];
+
+async function loadGeo() {
+  for (const url of GEO_SOURCES) {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) continue;
+      const data = await r.json();
+      if (data && data.features && data.features.length > 0) return data;
+    } catch (_) { /* try next */ }
+  }
+  throw new Error('All GeoJSON sources failed');
+}
+
+loadGeo()
+  .then(data => {
+    geoData = data;
+    document.getElementById('loading').style.display = 'none';
+    renderLayer();
+  })
+  .catch(err => {
+    document.getElementById('loading').innerHTML =
+      `<div style="color:#f87171;text-align:center;max-width:320px">
+        <b>Could not load ZIP boundaries</b><br>
+        <small style="color:#64748b">${err.message}</small>
+      </div>`;
+  });
+</script>
+</body>
+</html>
